@@ -9,6 +9,33 @@ import (
 	"strings"
 )
 
+// Void
+// -----------------------------------------------------------------------------
+type Void struct{}
+
+var void = Void{}
+
+// Set (of ints)
+// -----------------------------------------------------------------------------
+type Set map[int]Void
+
+func EmptySet() Set {
+	return Set{}
+}
+
+func (set Set) add(elt int) {
+	set[elt] = void
+}
+
+func (set Set) contains(elt int) bool {
+	_, ok := set[elt]
+	return ok
+}
+
+func (set Set) length() int {
+	return len(set)
+}
+
 // Geometry
 // -----------------------------------------------------------------------------
 type Geometry [4]int // xmin, ymin, xmax, ymax
@@ -66,27 +93,28 @@ func (c Country) String() string {
 	return s
 }
 
-func (c Country) saturation() int {
-	colors := map[int]bool{}
+func (c Country) neighborsColors() Set {
+	colors := EmptySet()
 	for _, n := range c.Neighbors {
-		if n.Color != 0 {
-			colors[n.Color] = true
+		if n.Color != 0 { // 0 means not colored
+			colors.add(n.Color)
 		}
 	}
-	return len(colors)
+	return colors
+}
+
+func (c Country) saturation() int {
+	return c.neighborsColors().length()
 }
 
 func (c *Country) setColor() {
-	colors := map[int]bool{}
-	for _, n := range c.Neighbors {
-		if n.Color != 0 { // 0 means not colored
-			colors[n.Color] = true
-		}
-	}
-	// Find the first available color
-	color := 1
-	for colors[color] {
+	colors := c.neighborsColors()
+	// Find the first available color ("real" one: >=1)
+	color := 0
+	exists := true
+	for exists {
 		color += 1
+		exists = colors.contains(color)
 	}
 	c.Color = color
 }
@@ -190,12 +218,10 @@ func (m Map) SVG() (svg string) {
 
 // Main Entry Point
 // -----------------------------------------------------------------------------
-type empty struct{}
-
 func main() {
 	paths := os.Args[1:]
 	N := len(paths)
-	sem := make(chan empty, N)
+	sem := make(chan Void, N)
 
 	for _, path := range paths {
 		go func(path string) {
@@ -238,7 +264,7 @@ func main() {
 				f.Close()
 				panic(err)
 			}
-			sem <- empty{} // signal the go routine end
+			sem <- void // signal the go routine end
 		}(path)
 	}
 	for i := 0; i < N; i++ { // wait for the end of all goroutines
