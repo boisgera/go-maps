@@ -2,39 +2,25 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"log"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// Void
+// Empty Struct
 // -----------------------------------------------------------------------------
-type Void struct{}
+type empty = struct{}
 
-var void = Void{}
+var nothing = empty{}
 
-// Set (of ints)
+// Sets
 // -----------------------------------------------------------------------------
-type Set map[int]Void
-
-func EmptySet() Set {
-	return Set{}
-}
-
-func (set Set) add(elt int) {
-	set[elt] = void
-}
-
-func (set Set) contains(elt int) bool {
-	_, ok := set[elt]
-	return ok
-}
-
-func (set Set) length() int {
-	return len(set)
-}
+type Set[E comparable] map[E]empty
 
 // Geometry
 // -----------------------------------------------------------------------------
@@ -83,45 +69,59 @@ type Country struct {
 	Color     int
 }
 
-func (c Country) String() string {
-	s := c.Name + " ["
+func (c *Country) String() string {
+	s := c.Name + ": neighbors = "
 	for _, c_ := range c.Neighbors {
-		s += c_.Name + ","
+		s += c_.Name + ", "
 	}
-	s += "]"
-	s += fmt.Sprintf(" color: %v", c.Color)
+	s += fmt.Sprintf(" color = %v", c.Color)
 	return s
 }
 
-func (c Country) neighborsColors() Set {
-	colors := EmptySet()
+func (c *Country) neighborsColors() Set[int] {
+	colors := Set[int]{}
 	for _, n := range c.Neighbors {
 		if n.Color != 0 { // 0 means not colored
-			colors.add(n.Color)
+			colors[n.Color] = nothing
 		}
 	}
 	return colors
 }
 
-func (c Country) saturation() int {
-	return c.neighborsColors().length()
+func (c *Country) saturation() int {
+	return len(c.neighborsColors())
 }
 
-func (c *Country) setColor() {
+func (c *Country) setColor(colors_ ...int) (err error) {
+	if len(colors_) >= 1 {
+		c.Color = colors_[0]
+		return
+	}
+
 	colors := c.neighborsColors()
 	// Find the first available color ("real" one: >=1)
 	color := 0
 	exists := true
 	for exists {
 		color += 1
-		exists = colors.contains(color)
+		_, exists = colors[color]
 	}
 	c.Color = color
+	if color > 4 {
+		err = fmt.Errorf("invalid color: %v", color)
+	}
+	return
 }
 
 // Map
 // -----------------------------------------------------------------------------
 type Map []*Country
+
+func (m Map) clearColors() {
+	for _, c := range m {
+		c.setColor(0)
+	}
+}
 
 func (m Map) String() (s string) {
 	for _, c := range m {
@@ -131,8 +131,9 @@ func (m Map) String() (s string) {
 }
 
 func (m Map) ComputeNeighbors() {
-	for i, c1 := range m {
+	for i := range m {
 		for j := i + 1; j < len(m); j++ {
+			c1 := m[i]
 			c2 := m[j]
 			if c1.Geometry.overlap(c2.Geometry) > 0 {
 				c1.Neighbors = append(c1.Neighbors, c2)
@@ -142,11 +143,43 @@ func (m Map) ComputeNeighbors() {
 	}
 }
 
-func DSATUR(Countries Map) {
-	countries := []*Country{}
-	countries = append(countries, []*Country(Countries)...)
+func loadMap(path string) Map {
+	var Countries Map
+
+	file, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			words := strings.Fields(line)
+			name := words[0]
+			geometry := [4]int{}
+			for i := 1; i < 5; i++ {
+				integer, error := strconv.Atoi(words[i])
+				if error != nil {
+					panic(error)
+				}
+				geometry[i-1] = integer
+			}
+			country := Country{Name: name, Geometry: geometry}
+			Countries = append(Countries, &country)
+		}
+	}
+	return Countries
+}
+
+// Buggy now that Map is a list of struct values, countries are not modified.
+func DSATUR(Countries Map) (order Map, err error) {
+	countries := Map{}
+	countries = append(countries, Countries...)
 
 	for len(countries) > 0 {
+		//fmt.Println("*", len(countries))
 		compare := func(i, j int) bool {
 			c1 := countries[i]
 			c2 := countries[j]
@@ -161,22 +194,63 @@ func DSATUR(Countries Map) {
 			}
 			return false
 		}
+
 		sort.Slice(countries, compare)
 		country := countries[len(countries)-1]
-		country.setColor()
+		if country.setColor() != nil {
+			err = errors.New("invalid color")
+		}
+		//fmt.Print("*", country.Color)
+		order = append(order, country)
 		countries = countries[:len(countries)-1]
 	}
+	return
 }
+
+func displayOrder(order []*Country) {
+	l := []string{}
+	for i := 0; i < len(order); i++ {
+		l = append(l, order[i].Name)
+	}
+	fmt.Printf("%v", l)
+}
+
+// func SHUFFLE(Countries Map, order []*Country) (order_out []*Country) {
+// 	// try everything in order. If some setColor fails, up it in the list
+// 	// and try again.
+// 	for iter := 0; iter < 1000; iter++ {
+// 		fmt.Printf("iter: %v ", iter)
+// 		Countries.clearColors()
+// 		for i, c := range order {
+// 			err := c.setColor()
+// 			if err != nil {
+// 				fmt.Printf("%v\n", i)
+// 				displayOrder(order)
+// 				a := order[0]
+// 				order[0] = c
+// 				order[i] = a
+// 				displayOrder(order)
+// 				break
+// 			}
+// 			if i == len(order)-1 {
+// 				order_out = order
+// 				return
+// 			}
+// 		}
+// 	}
+// 	return
+
+// }
 
 // SVG Export
 // -----------------------------------------------------------------------------
 var Colormap map[int]string = map[int]string{
-	0: "#e9ecef", // light grey
-	1: "green",
-	2: "yellow",
-	3: "orange",
-	4: "red",
-	5: "magenta",
+	-1: "magenta",
+	0:  "#e9ecef", // light grey
+	1:  "green",
+	2:  "yellow",
+	3:  "orange",
+	4:  "red",
 }
 
 func (m Map) SVG() (svg string) {
@@ -200,8 +274,7 @@ func (m Map) SVG() (svg string) {
 		geometry := country.Geometry
 		color, ok := Colormap[country.Color]
 		if !ok {
-			s := fmt.Sprintf("too many colors: color #%v", country.Color)
-			panic(s)
+			color = Colormap[-1]
 		}
 		x := geometry[0]
 		y := geometry[1]
@@ -218,41 +291,35 @@ func (m Map) SVG() (svg string) {
 
 // Main Entry Point
 // -----------------------------------------------------------------------------
+var profile bool = true
+
 func main() {
+	if profile {
+		f, err := os.Create("main.prof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 	paths := os.Args[1:]
 	N := len(paths)
-	sem := make(chan Void, N)
+	sem := make(chan struct{}, N)
 
 	for _, path := range paths {
 		go func(path string) {
-			file, err := os.Open(path)
-			if err != nil {
-				panic(err)
-			}
-			defer file.Close()
-
-			var Countries Map
-			scanner := bufio.NewScanner(file)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if line != "" {
-					words := strings.Fields(line)
-					name := words[0]
-					geometry := [4]int{}
-					for i := 1; i < 5; i++ {
-						integer, error := strconv.Atoi(words[i])
-						if error != nil {
-							panic(error)
-						}
-						geometry[i-1] = integer
-					}
-					country := &Country{Name: name, Geometry: geometry}
-					Countries = append(Countries, country)
-				}
-			}
+			Countries := loadMap(path)
 
 			Countries.ComputeNeighbors()
-			DSATUR(Countries)
+			// fmt.Println(Countries)
+
+			_, err := DSATUR(Countries)
+			if err != nil {
+				fmt.Printf("Map %v needs more than 4 colors\n", path)
+			}
+			// if err != nil {
+			// 	order = SHUFFLE(Countries, order)
+			// }
 
 			out := path + ".svg"
 			f, err := os.Create(out)
@@ -264,7 +331,7 @@ func main() {
 				f.Close()
 				panic(err)
 			}
-			sem <- void // signal the go routine end
+			sem <- struct{}{} // signal the go routine end
 		}(path)
 	}
 	for i := 0; i < N; i++ { // wait for the end of all goroutines
