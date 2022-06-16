@@ -173,7 +173,34 @@ func loadMap(path string) Map {
 	return Countries
 }
 
-// Buggy now that Map is a list of struct values, countries are not modified.
+func HARD_FIRST(Countries Map) (order Map, err error) {
+	countries := Map{}
+	countries = append(countries, Countries...)
+
+	for len(countries) > 0 {
+		//fmt.Println("*", len(countries))
+		compare := func(i, j int) bool {
+			c1 := countries[i]
+			c2 := countries[j]
+			if len(c1.Neighbors) < len(c2.Neighbors) {
+				return true
+			} else if len(c1.Neighbors) == len(c2.Neighbors) {
+				return i < j
+			}
+			return false
+		}
+
+		sort.Slice(countries, compare)
+		country := countries[len(countries)-1]
+		if country.setColor() != nil {
+			err = errors.New("invalid color")
+		}
+		order = append(order, country)
+		countries = countries[:len(countries)-1]
+	}
+	return
+}
+
 func DSATUR(Countries Map) (order Map, err error) {
 	countries := Map{}
 	countries = append(countries, Countries...)
@@ -200,7 +227,6 @@ func DSATUR(Countries Map) (order Map, err error) {
 		if country.setColor() != nil {
 			err = errors.New("invalid color")
 		}
-		//fmt.Print("*", country.Color)
 		order = append(order, country)
 		countries = countries[:len(countries)-1]
 	}
@@ -215,32 +241,36 @@ func displayOrder(order []*Country) {
 	fmt.Printf("%v", l)
 }
 
-// func SHUFFLE(Countries Map, order []*Country) (order_out []*Country) {
-// 	// try everything in order. If some setColor fails, up it in the list
-// 	// and try again.
-// 	for iter := 0; iter < 1000; iter++ {
-// 		fmt.Printf("iter: %v ", iter)
-// 		Countries.clearColors()
-// 		for i, c := range order {
-// 			err := c.setColor()
-// 			if err != nil {
-// 				fmt.Printf("%v\n", i)
-// 				displayOrder(order)
-// 				a := order[0]
-// 				order[0] = c
-// 				order[i] = a
-// 				displayOrder(order)
-// 				break
-// 			}
-// 			if i == len(order)-1 {
-// 				order_out = order
-// 				return
-// 			}
-// 		}
-// 	}
-// 	return
+func Backtrack(Countries Map, is ...int) (err error) {
+	// Implicit 2nd argument: 0
+	var i int = 0
+	if len(is) > 0 {
+		i = is[0]
+	}
 
-// }
+	// This is over! Victory!
+	if i == len(Countries) {
+		return
+	}
+
+	// But if we're not done yet ...
+	country := Countries[i]
+	neighborColors := country.neighborsColors()
+	for _, color := range [4]int{1, 2, 3, 4} {
+		_, ok := neighborColors[color]
+		if !ok {
+			country.Color = color
+			err = Backtrack(Countries, i+1)
+			if err == nil {
+				return
+			}
+		}
+	}
+	country.Color = 0
+	fmt.Printf("failed at depth %v / %v\n", i, len(Countries))
+	err = errors.New("no solution")
+	return
+}
 
 // SVG Export
 // -----------------------------------------------------------------------------
@@ -291,7 +321,7 @@ func (m Map) SVG() (svg string) {
 
 // Main Entry Point
 // -----------------------------------------------------------------------------
-var profile bool = true
+var profile bool = false
 
 func main() {
 	if profile {
@@ -313,9 +343,17 @@ func main() {
 			Countries.ComputeNeighbors()
 			// fmt.Println(Countries)
 
-			_, err := DSATUR(Countries)
+			Countries, err := DSATUR(Countries) // Countries is "sorted" now
 			if err != nil {
-				fmt.Printf("Map %v needs more than 4 colors\n", path)
+				fmt.Printf("Initial strategy %v needs more than 4 colors\n", path)
+				Countries.clearColors()
+				err = Backtrack(Countries)
+				fmt.Printf("Backtrack strategy done for %v\n", path)
+				if err != nil {
+					fmt.Printf("Backtrack strategy also fails for %v!\n", path)
+					//panic("end of the world")
+				}
+
 			}
 			// if err != nil {
 			// 	order = SHUFFLE(Countries, order)
