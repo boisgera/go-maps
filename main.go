@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"runtime/pprof"
 	"sort"
@@ -241,13 +242,14 @@ func displayOrder(order []*Country) {
 	fmt.Printf("%v", l)
 }
 
-func Backtrack(Countries Map, is ...int) (err error) {
-	// Implicit 2nd argument: 0
-	var i int = 0
-	if len(is) > 0 {
-		i = is[0]
-	}
+func Backtrack(Countries Map) (err error) {
+	i := 0
+	progress := big.NewInt(0)
+	err = backtrack(Countries, progress, i)
+	return
+}
 
+func backtrack(Countries Map, progress *big.Int, i int) (err error) {
 	// This is over! Victory!
 	if i == len(Countries) {
 		return
@@ -260,14 +262,28 @@ func Backtrack(Countries Map, is ...int) (err error) {
 		_, ok := neighborColors[color]
 		if !ok {
 			country.Color = color
-			err = Backtrack(Countries, i+1)
+			err = backtrack(Countries, progress, i+1)
 			if err == nil {
 				return
 			}
 		}
 	}
 	country.Color = 0
-	fmt.Printf("failed at depth %v / %v\n", i, len(Countries))
+	l := big.NewInt(int64(len(Countries)))
+	ib := big.NewInt(int64(i))
+	d := big.NewInt(0)
+	d.Sub(l, ib)
+	e := big.NewInt(0)
+	e.Exp(big.NewInt(4), d, nil)
+	progress.Add(progress, e)
+
+	n := big.NewInt(0)
+	n.Exp(big.NewInt(4), l, nil)
+
+	z := big.NewRat(0, 1)
+	z.SetFrac(progress, n)
+	p, _ := z.Float64()
+	fmt.Printf("progress: %v (/1.0)\n", p)
 	err = errors.New("no solution")
 	return
 }
